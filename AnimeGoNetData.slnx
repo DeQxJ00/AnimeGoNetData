@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AnimeGoNetData.Cli/AnimeGoNetData.Cli.csproj" />
+    <Project Path="src/AnimeGoNetData.Core/AnimeGoNetData.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AnimeGoNetData.Tests/AnimeGoNetData.Tests.csproj" />
+  </Folder>
+</Solution>
