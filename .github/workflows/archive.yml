@@ -1,0 +1,74 @@
+name: Build Bangumi Archive Data
+
+on:
+  schedule:
+    - cron: "0 0 * * 3"
+  workflow_dispatch:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bangumi-archive-data
+  cancel-in-progress: false
+
+jobs:
+  build-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore, build, and test
+        run: |
+          dotnet restore
+          dotnet build --configuration Release --no-restore
+          dotnet test --configuration Release --no-build
+
+      - name: Publish NativeAOT generator
+        run: dotnet publish src/AnimeGoNetData.Cli/AnimeGoNetData.Cli.csproj --configuration Release -r linux-x64 --self-contained true -o artifacts/publish/linux-x64
+
+      - name: Generate archive data
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          artifacts/publish/linux-x64/AnimeGoNetData.Cli \
+            --output artifacts/data \
+            --release-api https://api.github.com/repos/bangumi/Archive/releases/latest \
+            --chunk-size 100000 \
+            --min-subjects 1000 \
+            --min-episodes 10000
+
+      - name: Package and checksum
+        run: |
+          tar -C artifacts/data -czf artifacts/animegonetdata-bangumi-jsonl.tar.gz .
+          cp artifacts/data/manifest.json artifacts/manifest.json
+          find artifacts/data -type f -name '*.jsonl.gz' -print0 | sort -z | xargs -0 sha256sum > artifacts/checksums.sha256
+          sha256sum artifacts/animegonetdata-bangumi-jsonl.tar.gz artifacts/manifest.json >> artifacts/checksums.sha256
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: animegonetdata-bangumi-jsonl
+          path: |
+            artifacts/animegonetdata-bangumi-jsonl.tar.gz
+            artifacts/manifest.json
+            artifacts/checksums.sha256
+
+      - name: Update rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete archive --yes --cleanup-tag || true
+          git tag -f archive "$GITHUB_SHA"
+          git push origin refs/tags/archive --force
+          gh release create archive \
+            --title "AnimeGoNetData archive" \
+            --notes "Rolling AnimeGoNetData Bangumi JSONL.gz archive generated from the latest Bangumi Archive ZIP." \
+            artifacts/animegonetdata-bangumi-jsonl.tar.gz \
+            artifacts/manifest.json \
+            artifacts/checksums.sha256
