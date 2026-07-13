@@ -47,25 +47,25 @@ GitHub API 请求会读取 `GITHUB_TOKEN` 或 `GH_TOKEN`，用于提高限流额
 
 ## CLI
 
-```powershell
-E:\WorkSpaceAI\.dotnet10\dotnet.exe run --project src\AnimeGoNetData.Cli -- `
-  --output out `
-  --release-api https://api.github.com/repos/bangumi/Archive/releases/latest `
-  --chunk-size 100000 `
-  --min-subjects 1000 `
+```bash
+dotnet run --project src/AnimeGoNetData.Cli -- \
+  --output out \
+  --release-api https://api.github.com/repos/bangumi/Archive/releases/latest \
+  --chunk-size 100000 \
+  --min-subjects 1000 \
   --min-episodes 10000
 ```
 
 使用本地或远程 ZIP：
 
-```powershell
-E:\WorkSpaceAI\.dotnet10\dotnet.exe run --project src\AnimeGoNetData.Cli -- --output out --zip E:\path\dump.zip
+```bash
+dotnet run --project src/AnimeGoNetData.Cli -- --output out --zip /path/to/dump.zip
 ```
 
 只验证 Release 资产选择，不下载 400MB ZIP：
 
-```powershell
-E:\WorkSpaceAI\.dotnet10\dotnet.exe run --project src\AnimeGoNetData.Cli -- --release-api https://api.github.com/repos/bangumi/Archive/releases/latest --select-asset-only
+```bash
+dotnet run --project src/AnimeGoNetData.Cli -- --release-api https://api.github.com/repos/bangumi/Archive/releases/latest --select-asset-only
 ```
 
 ## GitHub Actions
@@ -78,7 +78,7 @@ E:\WorkSpaceAI\.dotnet10\dotnet.exe run --project src\AnimeGoNetData.Cli -- --re
 
 该 workflow 会 restore/build/test，发布 `linux-x64` NativeAOT 生成器，用原生二进制生成全量数据，并更新 rolling Release tag `archive`。Release assets 包含数据包、manifest 和 checksums。
 
-`.github/workflows/ci.yml` 提供 Windows/Linux 普通 CI 和 linux-x64 NativeAOT smoke。
+`.github/workflows/ci.yml` 提供普通 CI 和 linux-x64 NativeAOT smoke。
 
 ## AnimeGoNet 导入建议
 
