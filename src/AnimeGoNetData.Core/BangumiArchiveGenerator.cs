@@ -153,13 +153,23 @@ public sealed partial class BangumiArchiveGenerator
                     return;
                 }
 
-                int subjectId = RequiredPositiveInt(root, "subject_id", "episode");
-                if (!subjects.ContainsKey(subjectId))
+                if (!TryPositiveInt(root, "subject_id", out int subjectId)
+                    || !subjects.ContainsKey(subjectId))
                 {
                     return;
                 }
 
-                int id = RequiredPositiveInt(root, "id", "episode");
+                if (!TryPositiveInt(root, "id", out int id)
+                    || !TryPositiveDecimal(root, "sort", out decimal episodeNumber))
+                {
+                    // Archive occasionally contains type=0 rows without a usable
+                    // positive sort number. They cannot satisfy DATA_MANIFEST_V1's
+                    // positive episode contract, so treat them as non-exportable
+                    // rows while retaining strict JSON/duplicate validation for
+                    // records that can be represented.
+                    return;
+                }
+
                 if (!episodeIds.Add(id))
                 {
                     throw new InvalidDataException("The Bangumi Archive contains a duplicate normal Episode ID.");
@@ -168,7 +178,7 @@ public sealed partial class BangumiArchiveGenerator
                 episodes.Add(new NormalizedEpisode(
                     id,
                     subjectId,
-                    RequiredPositiveDecimal(root, "sort"),
+                    episodeNumber,
                     0,
                     NormalizeDate(root, "airdate")));
             },
@@ -526,10 +536,33 @@ public sealed partial class BangumiArchiveGenerator
             ? result
             : throw new InvalidDataException($"A Bangumi Archive {kind} ID is invalid.");
 
-    private static decimal RequiredPositiveDecimal(JsonElement root, string name)
-        => root.TryGetProperty(name, out JsonElement value) && value.TryGetDecimal(out decimal result) && result > 0
-            ? result
-            : throw new InvalidDataException("A Bangumi Archive normal Episode number is invalid.");
+    private static bool TryPositiveInt(JsonElement root, string name, out int result)
+        => root.TryGetProperty(name, out JsonElement value)
+            && value.TryGetInt32(out result)
+            && result > 0;
+
+    private static bool TryPositiveDecimal(JsonElement root, string name, out decimal result)
+    {
+        if (!root.TryGetProperty(name, out JsonElement value))
+        {
+            result = default;
+            return false;
+        }
+
+        if (value.TryGetDecimal(out result))
+        {
+            return result > 0;
+        }
+
+        if (value.ValueKind == JsonValueKind.String
+            && decimal.TryParse(value.GetString(), NumberStyles.Number, CultureInfo.InvariantCulture, out result))
+        {
+            return result > 0;
+        }
+
+        result = default;
+        return false;
+    }
 
     private static string NormalizeRequiredText(JsonElement root, string name, string kind)
         => NormalizeOptionalText(root, name) ?? throw new InvalidDataException($"A Bangumi Archive {kind} name is empty.");

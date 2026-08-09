@@ -50,7 +50,7 @@ Episode JSONL 每行字段：
 - subject 按 `id` 升序输出；episode 在每个分片内按 `id` 升序输出。
 - `episode_count` 来自该 subject 的普通集数量。
 - `air_date` 来自 subject `date` 或 episode `airdate`，无效日期输出 `null`。
-- 重复 subject/episode ID、坏 JSON、缺少 ZIP entry、无效正数 ID 或无效 episode number 都会使发布失败。
+- 重复 subject/episode ID、坏 JSON、缺少 ZIP entry 会使发布失败；不能满足输出协议的 type=0 Episode（例如缺失或非正数 `sort`）会被跳过。
 
 ## 输出目录
 
