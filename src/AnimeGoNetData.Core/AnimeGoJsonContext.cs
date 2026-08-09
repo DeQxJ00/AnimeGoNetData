@@ -4,6 +4,7 @@ namespace AnimeGoNetData.Core;
 
 [JsonSerializable(typeof(SubjectRecord))]
 [JsonSerializable(typeof(EpisodeRecord))]
+[JsonSerializable(typeof(RelationRecord))]
 [JsonSerializable(typeof(DataManifest))]
 [JsonSerializable(typeof(GitHubReleaseResponse))]
 [JsonSerializable(typeof(List<GitHubAssetResponse>))]

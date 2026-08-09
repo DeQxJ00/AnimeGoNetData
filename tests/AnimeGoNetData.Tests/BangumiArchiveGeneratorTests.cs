@@ -10,7 +10,7 @@ namespace AnimeGoNetData.Tests;
 public sealed class BangumiArchiveGeneratorTests
 {
     [Fact]
-    public async Task Generate_EmitsDataManifestV1AssetsHashesAndStrictOfflineZip()
+    public async Task Generate_EmitsDataManifestV2AssetsHashesRelationsAndStrictOfflineZip()
     {
         string root = NewTempDirectory();
         string zip = FixtureZip.Create(
@@ -26,6 +26,12 @@ public sealed class BangumiArchiveGeneratorTests
                 """{"id":21,"subject_id":2,"sort":1,"type":0,"airdate":"bad"}""",
                 """{"id":31,"subject_id":3,"sort":1,"type":0,"airdate":"2026-01-01"}""",
                 """{"id":13,"subject_id":1,"sort":3,"type":1,"airdate":"2026-01-15"}"""
+            ],
+            [
+                """{"subject_id":2,"related_subject_id":1,"relation_type":2,"order":0}""",
+                """{"subject_id":1,"related_subject_id":2,"relation_type":2,"order":1}""",
+                """{"subject_id":1,"related_subject_id":3,"relation_type":2,"order":2}""",
+                """{"subject_id":3,"related_subject_id":1,"relation_type":2,"order":3}"""
             ]);
         string output = Path.Combine(root, "out");
         string upstreamSha256 = Sha256(zip);
@@ -38,7 +44,8 @@ public sealed class BangumiArchiveGeneratorTests
         Assert.Equal(upstreamSha256, result.Manifest.Upstream.Sha256);
         Assert.Equal(2, result.Manifest.Totals.Subjects);
         Assert.Equal(3, result.Manifest.Totals.Episodes);
-        Assert.Equal(4, result.Manifest.Assets.Count);
+        Assert.Equal(2, result.Manifest.Totals.Relations);
+        Assert.Equal(5, result.Manifest.Assets.Count);
 
         string manifestPath = Path.Combine(output, "manifest.json");
         EquivalentManifestParser.Parse(await File.ReadAllBytesAsync(manifestPath));
@@ -71,6 +78,14 @@ public sealed class BangumiArchiveGeneratorTests
             ],
             firstEpisodeLines);
 
+        string[] relationLines = ReadGzipLines(Path.Combine(output, "relations-0001.jsonl.gz"));
+        Assert.Equal(
+            [
+                """{"subject_id":1,"related_subject_id":2,"relation_type":2,"order":1}""",
+                """{"subject_id":2,"related_subject_id":1,"relation_type":2,"order":0}"""
+            ],
+            relationLines);
+
         AssertOfflineZipMatchesManifest(output, result.Manifest);
         AssertChecksums(output);
     }
@@ -82,7 +97,8 @@ public sealed class BangumiArchiveGeneratorTests
         string zip = FixtureZip.Create(
             root,
             ["""{"id":1,"type":2,"name":"A","name_cn":"甲","date":"2026-01-01"}"""],
-            ["""{"id":10,"subject_id":1,"sort":1,"type":0,"airdate":"2026-01-01"}"""]);
+            ["""{"id":10,"subject_id":1,"sort":1,"type":0,"airdate":"2026-01-01"}"""],
+            ["""{"subject_id":1,"related_subject_id":1,"relation_type":2,"order":0}"""]);
         string hash = Sha256(zip);
         string output1 = Path.Combine(root, "out1");
         string output2 = Path.Combine(root, "out2");
@@ -117,13 +133,29 @@ public sealed class BangumiArchiveGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_FailsWhenRelationEntryIsMissing()
+    {
+        string root = NewTempDirectory();
+        string zip = FixtureZip.Create(
+            root,
+            ["""{"id":1,"type":2,"name":"A"}"""],
+            ["""{"id":10,"subject_id":1,"sort":1,"type":0}"""]);
+
+        InvalidDataException ex = await Assert.ThrowsAsync<InvalidDataException>(
+            () => Generate(zip, Path.Combine(root, "out"), Sha256(zip), subjectsPerShard: 10));
+
+        Assert.Contains("subject-relations.jsonlines", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Generate_FailsOnBadJsonAndDuplicateIds()
     {
         string root = NewTempDirectory();
         string badZip = FixtureZip.Create(
             Path.Combine(root, "bad"),
             ["""{"id":1,"type":2,"name":"A"}""", """{bad json"""],
-            ["""{"id":10,"subject_id":1,"sort":1,"type":0}"""]);
+            ["""{"id":10,"subject_id":1,"sort":1,"type":0}"""],
+            ["""{"subject_id":1,"related_subject_id":1,"relation_type":2,"order":0}"""]);
 
         await Assert.ThrowsAsync<InvalidDataException>(
             () => Generate(badZip, Path.Combine(root, "bad-out"), Sha256(badZip), subjectsPerShard: 10));
@@ -131,11 +163,33 @@ public sealed class BangumiArchiveGeneratorTests
         string duplicateZip = FixtureZip.Create(
             Path.Combine(root, "dup"),
             ["""{"id":1,"type":2,"name":"A"}""", """{"id":1,"type":2,"name":"B"}"""],
-            ["""{"id":10,"subject_id":1,"sort":1,"type":0}"""]);
+            ["""{"id":10,"subject_id":1,"sort":1,"type":0}"""],
+            ["""{"subject_id":1,"related_subject_id":1,"relation_type":2,"order":0}"""]);
 
         InvalidDataException ex = await Assert.ThrowsAsync<InvalidDataException>(
             () => Generate(duplicateZip, Path.Combine(root, "dup-out"), Sha256(duplicateZip), subjectsPerShard: 10));
         Assert.Contains("duplicate anime Subject ID", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Generate_FailsOnDuplicateRetainedRelation()
+    {
+        string root = NewTempDirectory();
+        string zip = FixtureZip.Create(
+            root,
+            [
+                """{"id":1,"type":2,"name":"A"}""",
+                """{"id":2,"type":2,"name":"B"}"""
+            ],
+            ["""{"id":10,"subject_id":1,"sort":1,"type":0}"""],
+            [
+                """{"subject_id":1,"related_subject_id":2,"relation_type":2,"order":0}""",
+                """{"subject_id":1,"related_subject_id":2,"relation_type":2,"order":1}"""
+            ]);
+
+        InvalidDataException ex = await Assert.ThrowsAsync<InvalidDataException>(
+            () => Generate(zip, Path.Combine(root, "out"), Sha256(zip), subjectsPerShard: 10));
+        Assert.Contains("duplicate retained Subject relation", ex.Message, StringComparison.Ordinal);
     }
 
     private static Task<GenerationResult> Generate(string zip, string output, string upstreamSha256, int subjectsPerShard)
@@ -223,7 +277,7 @@ internal static class EquivalentManifestParser
     {
         using JsonDocument document = JsonDocument.Parse(bytes, new JsonDocumentOptions { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 8 });
         JsonElement root = document.RootElement;
-        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("schema_version").GetInt32());
         Assert.Matches("^[a-z0-9][a-z0-9._-]{0,63}$", root.GetProperty("data_version").GetString()!);
         Assert.Equal(TimeSpan.Zero, DateTimeOffset.ParseExact(root.GetProperty("generated_at_utc").GetString()!, "O", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).Offset);
         Assert.True(Version.TryParse(root.GetProperty("minimum_client_version").GetString(), out _));
@@ -231,12 +285,13 @@ internal static class EquivalentManifestParser
 
         long subjects = 0;
         long episodes = 0;
+        long relations = 0;
         HashSet<string> names = new(StringComparer.Ordinal);
         foreach (JsonElement asset in root.GetProperty("assets").EnumerateArray())
         {
             string kind = asset.GetProperty("kind").GetString()!;
             string fileName = asset.GetProperty("file_name").GetString()!;
-            Assert.True(kind is "subjects" or "episodes");
+            Assert.True(kind is "subjects" or "episodes" or "relations");
             Assert.Equal(Path.GetFileName(fileName), fileName);
             Assert.EndsWith(".jsonl.gz", fileName, StringComparison.Ordinal);
             Assert.True(names.Add(fileName));
@@ -247,10 +302,13 @@ internal static class EquivalentManifestParser
             Assert.True(asset.GetProperty("subject_id_min").GetInt32() > 0);
             Assert.True(asset.GetProperty("subject_id_max").GetInt32() >= asset.GetProperty("subject_id_min").GetInt32());
             if (kind == "subjects") subjects += asset.GetProperty("record_count").GetInt64();
-            else episodes += asset.GetProperty("record_count").GetInt64();
+            else if (kind == "episodes") episodes += asset.GetProperty("record_count").GetInt64();
+            else relations += asset.GetProperty("record_count").GetInt64();
         }
 
         Assert.Equal(subjects, root.GetProperty("totals").GetProperty("subjects").GetInt64());
         Assert.Equal(episodes, root.GetProperty("totals").GetProperty("episodes").GetInt64());
+        Assert.Equal(relations, root.GetProperty("totals").GetProperty("relations").GetInt64());
+        Assert.True(relations > 0);
     }
 }

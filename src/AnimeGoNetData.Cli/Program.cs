@@ -93,7 +93,7 @@ internal static class Program
             var generator = new BangumiArchiveGenerator();
             GenerationResult result = await generator.GenerateAsync(generationOptions).ConfigureAwait(false);
 
-            Console.WriteLine($"Built {result.Manifest.DataVersion}: {result.Manifest.Totals.Subjects.ToString(CultureInfo.InvariantCulture)} subjects, {result.Manifest.Totals.Episodes.ToString(CultureInfo.InvariantCulture)} episodes, {result.Manifest.Assets.Count.ToString(CultureInfo.InvariantCulture)} assets.");
+            Console.WriteLine($"Built {result.Manifest.DataVersion}: {result.Manifest.Totals.Subjects.ToString(CultureInfo.InvariantCulture)} subjects, {result.Manifest.Totals.Episodes.ToString(CultureInfo.InvariantCulture)} episodes, {result.Manifest.Totals.Relations.ToString(CultureInfo.InvariantCulture)} relations, {result.Manifest.Assets.Count.ToString(CultureInfo.InvariantCulture)} assets.");
             Console.WriteLine($"Manifest SHA-256: {result.ManifestSha256}");
             Console.WriteLine(Path.Combine(options.OutputDirectory, "manifest.json"));
             return 0;
@@ -154,7 +154,7 @@ internal static class Program
     }
 
     private static string ToDataVersion(DateTimeOffset value)
-        => NormalizeUtc(value).ToString("yyyy.MM.dd", CultureInfo.InvariantCulture) + ".1";
+        => NormalizeUtc(value).ToString("yyyy.MM.dd", CultureInfo.InvariantCulture) + ".2";
 
     private static DateTimeOffset NormalizeUtc(DateTimeOffset value)
         => value.ToUniversalTime();
@@ -203,10 +203,10 @@ Options:
   --asset-base-url <url>         Immutable Release asset base URL ending with '/'.
   --zip <path>                   Use a local Bangumi Archive ZIP.
   --release-api <url>            GitHub Releases API endpoint. Defaults to bangumi/Archive latest.
-  --data-version <version>       Stable DATA_MANIFEST_V1 data_version. Defaults to yyyy.MM.dd.1.
+  --data-version <version>       Stable DATA_MANIFEST_V2 data_version. Defaults to yyyy.MM.dd.2.
   --upstream-release <name>      Upstream release name for local ZIP mode. Default: local.
   --upstream-sha256 <sha256>     Expected ZIP SHA-256. If omitted, local ZIP hash is computed.
-  --minimum-client-version <v>   DATA_MANIFEST_V1 minimum_client_version. Default: 0.1.0.
+  --minimum-client-version <v>   DATA_MANIFEST_V2 minimum_client_version. Default: 0.1.0.
   --subjects-per-shard <n>       Anime subjects per shard. Default: 25000.
   --chunk-size <n>               Alias for --subjects-per-shard.
   --min-subjects <n>             Fail if fewer subjects are generated. Default: 1.

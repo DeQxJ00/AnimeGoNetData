@@ -5,7 +5,7 @@ namespace AnimeGoNetData.Tests;
 
 internal static class FixtureZip
 {
-    public static string Create(string directory, string[]? subjects, string[]? episodes)
+    public static string Create(string directory, string[]? subjects, string[]? episodes, string[]? relations = null)
     {
         Directory.CreateDirectory(directory);
         string path = Path.Combine(directory, "fixture.zip");
@@ -18,6 +18,11 @@ internal static class FixtureZip
         if (episodes is not null)
         {
             WriteEntry(zip, "episode.jsonlines", episodes);
+        }
+
+        if (relations is not null)
+        {
+            WriteEntry(zip, "subject-relations.jsonlines", relations);
         }
 
         return path;

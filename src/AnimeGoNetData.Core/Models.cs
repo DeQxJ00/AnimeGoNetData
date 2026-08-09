@@ -23,6 +23,12 @@ public sealed record EpisodeRecord(
     [property: JsonPropertyName("episode")] string Episode,
     [property: JsonPropertyName("air_date")] string? AirDate);
 
+public sealed record RelationRecord(
+    [property: JsonPropertyName("subject_id")] int SubjectId,
+    [property: JsonPropertyName("related_subject_id")] int RelatedSubjectId,
+    [property: JsonPropertyName("relation_type")] int RelationType,
+    [property: JsonPropertyName("order")] int Order);
+
 public sealed record DataManifest(
     [property: JsonPropertyName("schema_version")] int SchemaVersion,
     [property: JsonPropertyName("data_version")] string DataVersion,
@@ -50,7 +56,8 @@ public sealed record DataManifestAsset(
 
 public sealed record DataManifestTotals(
     [property: JsonPropertyName("subjects")] long Subjects,
-    [property: JsonPropertyName("episodes")] long Episodes);
+    [property: JsonPropertyName("episodes")] long Episodes,
+    [property: JsonPropertyName("relations")] long Relations);
 
 public sealed record GenerationOptions(
     string OutputDirectory,

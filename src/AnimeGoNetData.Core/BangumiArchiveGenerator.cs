@@ -10,10 +10,11 @@ namespace AnimeGoNetData.Core;
 
 public sealed partial class BangumiArchiveGenerator
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
     public const string UpstreamRepository = "https://github.com/bangumi/Archive";
     private const string SubjectEntryName = "subject.jsonlines";
     private const string EpisodeEntryName = "episode.jsonlines";
+    private const string RelationEntryName = "subject-relations.jsonlines";
     private const int MaximumLineBytes = 8 * 1024 * 1024;
 
     public async Task<GenerationResult> GenerateAsync(
@@ -56,6 +57,10 @@ public sealed partial class BangumiArchiveGenerator
             {
                 throw new InvalidDataException($"Episode count {data.Episodes.Count.ToString(CultureInfo.InvariantCulture)} is below minimum {options.MinimumEpisodes.ToString(CultureInfo.InvariantCulture)}.");
             }
+            if (data.Relations.Count == 0)
+            {
+                throw new InvalidDataException("The Bangumi Archive contains no relations between retained anime Subjects.");
+            }
 
             IReadOnlyList<DataManifestAsset> assets = await WriteAssetsAsync(staging, options.AssetBaseUrl, options.SubjectsPerShard, data, cancellationToken).ConfigureAwait(false);
             var manifest = new DataManifest(
@@ -69,7 +74,7 @@ public sealed partial class BangumiArchiveGenerator
                     options.UpstreamAsset.Name,
                     options.UpstreamSha256),
                 assets,
-                new DataManifestTotals(data.Subjects.Count, data.Episodes.Count));
+                new DataManifestTotals(data.Subjects.Count, data.Episodes.Count, data.Relations.Count));
 
             byte[] manifestBytes = RenderManifest(manifest);
             ValidateManifestShape(manifest);
@@ -108,6 +113,7 @@ public sealed partial class BangumiArchiveGenerator
         using var archive = new ZipArchive(file, ZipArchiveMode.Read, leaveOpen: false);
         ZipArchiveEntry subjectEntry = RequireSingleRootEntry(archive, SubjectEntryName);
         ZipArchiveEntry episodeEntry = RequireSingleRootEntry(archive, EpisodeEntryName);
+        ZipArchiveEntry relationEntry = RequireSingleRootEntry(archive, RelationEntryName);
 
         var subjects = new SortedDictionary<int, NormalizedSubject>();
         await ReadJsonLinesAsync(
@@ -163,7 +169,7 @@ public sealed partial class BangumiArchiveGenerator
                     || !TryPositiveDecimal(root, "sort", out decimal episodeNumber))
                 {
                     // Archive occasionally contains type=0 rows without a usable
-                    // positive sort number. They cannot satisfy DATA_MANIFEST_V1's
+                    // positive sort number. They cannot satisfy DATA_MANIFEST_V2's
                     // positive episode contract, so treat them as non-exportable
                     // rows while retaining strict JSON/duplicate validation for
                     // records that can be represented.
@@ -218,7 +224,51 @@ public sealed partial class BangumiArchiveGenerator
             .GroupBy(static episode => episode.SubjectId)
             .ToDictionary(static group => group.Key, static group => group.Count());
 
-        return new ArchiveData(subjects.Values.ToArray(), episodes, episodeCounts);
+        var relations = new List<NormalizedRelation>();
+        var relationKeys = new HashSet<(int SubjectId, int RelatedSubjectId, int RelationType)>();
+        await ReadJsonLinesAsync(
+            relationEntry,
+            line =>
+            {
+                using JsonDocument document = ParseLine(line, "subject relation");
+                JsonElement root = document.RootElement;
+                int subjectId = RequiredPositiveInt(root, "subject_id", "subject relation");
+                int relatedSubjectId = RequiredPositiveInt(root, "related_subject_id", "subject relation");
+                if (!subjects.ContainsKey(subjectId) || !subjects.ContainsKey(relatedSubjectId))
+                {
+                    return;
+                }
+
+                int relationType = RequiredPositiveInt(root, "relation_type", "subject relation");
+                int order = RequiredNonNegativeInt(root, "order", "subject relation");
+                if (!relationKeys.Add((subjectId, relatedSubjectId, relationType)))
+                {
+                    throw new InvalidDataException("The Bangumi Archive contains a duplicate retained Subject relation.");
+                }
+
+                relations.Add(new NormalizedRelation(subjectId, relatedSubjectId, relationType, order));
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        relations.Sort(static (left, right) =>
+        {
+            int subject = left.SubjectId.CompareTo(right.SubjectId);
+            if (subject != 0)
+            {
+                return subject;
+            }
+
+            int order = left.Order.CompareTo(right.Order);
+            if (order != 0)
+            {
+                return order;
+            }
+
+            int related = left.RelatedSubjectId.CompareTo(right.RelatedSubjectId);
+            return related != 0 ? related : left.RelationType.CompareTo(right.RelationType);
+        });
+
+        return new ArchiveData(subjects.Values.ToArray(), episodes, relations, episodeCounts);
     }
 
     private static async Task<IReadOnlyList<DataManifestAsset>> WriteAssetsAsync(
@@ -294,6 +344,22 @@ public sealed partial class BangumiArchiveGenerator
                 cancellationToken).ConfigureAwait(false));
         }
 
+        int relationMinimumId = data.Relations.Min(static relation => relation.SubjectId);
+        int relationMaximumId = data.Relations.Max(static relation => relation.SubjectId);
+        assets.Add(await WriteAssetAsync(
+            staging,
+            assetBaseUrl,
+            "relations",
+            "relations-0001.jsonl.gz",
+            data.Relations.Select(static relation => new RelationRecord(
+                relation.SubjectId,
+                relation.RelatedSubjectId,
+                relation.RelationType,
+                relation.Order)).ToArray(),
+            relationMinimumId,
+            relationMaximumId,
+            cancellationToken).ConfigureAwait(false));
+
         return assets;
     }
 
@@ -320,6 +386,10 @@ public sealed partial class BangumiArchiveGenerator
                 else if (record is EpisodeRecord episode)
                 {
                     await JsonSerializer.SerializeAsync(gzip, episode, AnimeGoJsonContext.Default.EpisodeRecord, cancellationToken).ConfigureAwait(false);
+                }
+                else if (record is RelationRecord relation)
+                {
+                    await JsonSerializer.SerializeAsync(gzip, relation, AnimeGoJsonContext.Default.RelationRecord, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -377,6 +447,7 @@ public sealed partial class BangumiArchiveGenerator
             writer.WriteStartObject("totals");
             writer.WriteNumber("subjects", manifest.Totals.Subjects);
             writer.WriteNumber("episodes", manifest.Totals.Episodes);
+            writer.WriteNumber("relations", manifest.Totals.Relations);
             writer.WriteEndObject();
             writer.WriteEndObject();
         }
@@ -536,6 +607,11 @@ public sealed partial class BangumiArchiveGenerator
             ? result
             : throw new InvalidDataException($"A Bangumi Archive {kind} ID is invalid.");
 
+    private static int RequiredNonNegativeInt(JsonElement root, string name, string kind)
+        => root.TryGetProperty(name, out JsonElement value) && value.TryGetInt32(out int result) && result >= 0
+            ? result
+            : throw new InvalidDataException($"A Bangumi Archive {kind} order is invalid.");
+
     private static bool TryPositiveInt(JsonElement root, string name, out int result)
     {
         result = default;
@@ -663,7 +739,13 @@ public sealed partial class BangumiArchiveGenerator
     {
         long subjects = manifest.Assets.Where(static asset => asset.Kind == "subjects").Sum(static asset => asset.RecordCount);
         long episodes = manifest.Assets.Where(static asset => asset.Kind == "episodes").Sum(static asset => asset.RecordCount);
-        if (subjects != manifest.Totals.Subjects || episodes != manifest.Totals.Episodes || subjects <= 0 || episodes <= 0)
+        long relations = manifest.Assets.Where(static asset => asset.Kind == "relations").Sum(static asset => asset.RecordCount);
+        if (subjects != manifest.Totals.Subjects
+            || episodes != manifest.Totals.Episodes
+            || relations != manifest.Totals.Relations
+            || subjects <= 0
+            || episodes <= 0
+            || relations <= 0)
         {
             throw new InvalidDataException("The generated manifest totals do not match asset counts.");
         }
@@ -674,6 +756,7 @@ public sealed partial class BangumiArchiveGenerator
             if (!names.Add(asset.FileName)
                 || asset.FileName != Path.GetFileName(asset.FileName)
                 || !asset.FileName.EndsWith(".jsonl.gz", StringComparison.Ordinal)
+                || asset.Kind is not ("subjects" or "episodes" or "relations")
                 || !LowerSha256().IsMatch(asset.Sha256)
                 || asset.SizeBytes <= 0
                 || asset.RecordCount <= 0
@@ -717,8 +800,11 @@ public sealed partial class BangumiArchiveGenerator
 
     private sealed record NormalizedEpisode(int Id, int SubjectId, decimal EpisodeNumber, int Sort, DateOnly? AirDate);
 
+    private sealed record NormalizedRelation(int SubjectId, int RelatedSubjectId, int RelationType, int Order);
+
     private sealed record ArchiveData(
         IReadOnlyList<NormalizedSubject> Subjects,
         IReadOnlyList<NormalizedEpisode> Episodes,
+        IReadOnlyList<NormalizedRelation> Relations,
         IReadOnlyDictionary<int, int> EpisodeCounts);
 }

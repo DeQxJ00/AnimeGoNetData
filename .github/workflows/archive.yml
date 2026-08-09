@@ -49,7 +49,9 @@ jobs:
             Select-Object -First 1
           if ($null -eq $asset) { throw 'No .zip asset found in bangumi/Archive latest release.' }
           $updated = [DateTimeOffset]::Parse($asset.updated_at).ToUniversalTime()
-          $dataVersion = $updated.ToString('yyyy.MM.dd', [Globalization.CultureInfo]::InvariantCulture) + '.1'
+          # Schema v2 uses the .2 sequence so it never collides with the
+          # previously published schema v1 release for the same archive date.
+          $dataVersion = $updated.ToString('yyyy.MM.dd', [Globalization.CultureInfo]::InvariantCulture) + '.2'
           "BANGUMI_RELEASE=$($release.tag_name)" >> $env:GITHUB_ENV
           "BANGUMI_ASSET_NAME=$($asset.name)" >> $env:GITHUB_ENV
           "BANGUMI_ASSET_URL=$($asset.browser_download_url)" >> $env:GITHUB_ENV
@@ -72,7 +74,7 @@ jobs:
       - name: Publish NativeAOT generator
         run: dotnet publish src/AnimeGoNetData.Cli/AnimeGoNetData.Cli.csproj --configuration Release -r linux-x64 --self-contained true -o artifacts/publish/linux-x64
 
-      - name: Generate DATA_MANIFEST_V1 assets
+      - name: Generate DATA_MANIFEST_V2 assets
         run: |
           artifacts/publish/linux-x64/AnimeGoNetData.Cli \
             --zip "artifacts/upstream/${BANGUMI_ASSET_NAME}" \
@@ -114,7 +116,7 @@ jobs:
               --draft \
               --latest=false \
               --title "AnimeGoNetData ${DATA_VERSION}" \
-              --notes "Immutable DATA_MANIFEST_V1 Bangumi archive generated from ${BANGUMI_ASSET_NAME}."
+              --notes "Immutable DATA_MANIFEST_V2 Bangumi archive generated from ${BANGUMI_ASSET_NAME}."
             mapfile -t release_files < <(find "$output_dir" -maxdepth 1 -type f | sort)
             gh release upload "$DATA_VERSION" "${release_files[@]}"
             gh release view "$DATA_VERSION" --json assets --jq '.assets[].name' | sort > "$remote_names"
