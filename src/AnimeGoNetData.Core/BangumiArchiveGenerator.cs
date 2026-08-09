@@ -57,9 +57,9 @@ public sealed partial class BangumiArchiveGenerator
             {
                 throw new InvalidDataException($"Episode count {data.Episodes.Count.ToString(CultureInfo.InvariantCulture)} is below minimum {options.MinimumEpisodes.ToString(CultureInfo.InvariantCulture)}.");
             }
-            if (data.Relations.Count == 0)
+            if (data.Relations.Count < options.MinimumRelations)
             {
-                throw new InvalidDataException("The Bangumi Archive contains no relations between retained anime Subjects.");
+                throw new InvalidDataException($"Relation count {data.Relations.Count.ToString(CultureInfo.InvariantCulture)} is below minimum {options.MinimumRelations.ToString(CultureInfo.InvariantCulture)}.");
             }
 
             IReadOnlyList<DataManifestAsset> assets = await WriteAssetsAsync(staging, options.AssetBaseUrl, options.SubjectsPerShard, data, cancellationToken).ConfigureAwait(false);
@@ -250,25 +250,52 @@ public sealed partial class BangumiArchiveGenerator
             },
             cancellationToken).ConfigureAwait(false);
 
-        relations.Sort(static (left, right) =>
-        {
-            int subject = left.SubjectId.CompareTo(right.SubjectId);
-            if (subject != 0)
-            {
-                return subject;
-            }
-
-            int order = left.Order.CompareTo(right.Order);
-            if (order != 0)
-            {
-                return order;
-            }
-
-            int related = left.RelatedSubjectId.CompareTo(right.RelatedSubjectId);
-            return related != 0 ? related : left.RelationType.CompareTo(right.RelationType);
-        });
+        relations.Sort(CompareRelations);
+        ValidateRelations(subjects, relations);
 
         return new ArchiveData(subjects.Values.ToArray(), episodes, relations, episodeCounts);
+    }
+
+    private static int CompareRelations(NormalizedRelation left, NormalizedRelation right)
+    {
+        int subject = left.SubjectId.CompareTo(right.SubjectId);
+        if (subject != 0)
+        {
+            return subject;
+        }
+
+        int order = left.Order.CompareTo(right.Order);
+        if (order != 0)
+        {
+            return order;
+        }
+
+        int related = left.RelatedSubjectId.CompareTo(right.RelatedSubjectId);
+        return related != 0 ? related : left.RelationType.CompareTo(right.RelationType);
+    }
+
+    private static void ValidateRelations(
+        IReadOnlyDictionary<int, NormalizedSubject> subjects,
+        IReadOnlyList<NormalizedRelation> relations)
+    {
+        var keys = new HashSet<(int SubjectId, int RelatedSubjectId, int RelationType)>();
+        NormalizedRelation? previous = null;
+        foreach (NormalizedRelation relation in relations)
+        {
+            if (!subjects.ContainsKey(relation.SubjectId)
+                || !subjects.ContainsKey(relation.RelatedSubjectId)
+                || !keys.Add((relation.SubjectId, relation.RelatedSubjectId, relation.RelationType)))
+            {
+                throw new InvalidDataException("The generated relations contain a duplicate or dangling Subject reference.");
+            }
+
+            if (previous is not null && CompareRelations(previous, relation) >= 0)
+            {
+                throw new InvalidDataException("The generated relations are not strictly sorted.");
+            }
+
+            previous = relation;
+        }
     }
 
     private static async Task<IReadOnlyList<DataManifestAsset>> WriteAssetsAsync(
@@ -727,6 +754,11 @@ public sealed partial class BangumiArchiveGenerator
         if (options.MinimumEpisodes is < 1 or > 100_000_000)
         {
             throw new ArgumentException("Minimum Episode count must be between 1 and 100000000.", nameof(options));
+        }
+
+        if (options.MinimumRelations is < 1 or > 100_000_000)
+        {
+            throw new ArgumentException("Minimum relation count must be between 1 and 100000000.", nameof(options));
         }
 
         if (!IsSafeHttpBaseUrl(options.AssetBaseUrl))

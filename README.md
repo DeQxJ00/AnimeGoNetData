@@ -62,6 +62,7 @@ Relations JSONL 每行字段：
 - 重复 subject/episode ID、坏 JSON、缺少 ZIP entry 会使发布失败；不能满足输出协议的 type=0 Episode（例如缺失或非正数 `sort`）会被跳过。
 - relations 只保留 source/target 都是已保留 `type = 2` 动画 Subject 的记录；非动画目标会被过滤，不能产生悬空引用。
 - relation 保留 Bangumi Archive 原始正整数 `relation_type`；输出按 `subject_id`、`order`、`related_subject_id`、`relation_type` 排序，同一三元组重复会使发布失败。
+- 生产 Action 要求至少保留 10000 条 relations；CLI 可用 `--min-relations` 调整本地/其他环境的下限。
 
 ## 业务边界
 
@@ -100,7 +101,8 @@ dotnet run --project src/AnimeGoNetData.Cli -- \
   --minimum-client-version 0.1.0 \
   --subjects-per-shard 25000 \
   --min-subjects 30000 \
-  --min-episodes 300000
+  --min-episodes 300000 \
+  --min-relations 10000
 ```
 
 只验证 Release 资产选择，不下载全量 ZIP：

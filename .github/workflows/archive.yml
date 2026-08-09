@@ -86,7 +86,8 @@ jobs:
             --generated-at-utc "${GENERATED_AT_UTC}" \
             --subjects-per-shard 25000 \
             --min-subjects 30000 \
-            --min-episodes 300000
+            --min-episodes 300000 \
+            --min-relations 10000
 
       - uses: actions/upload-artifact@v7
         with:

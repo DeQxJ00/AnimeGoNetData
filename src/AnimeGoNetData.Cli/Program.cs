@@ -88,7 +88,8 @@ internal static class Program
                 options.SubjectsPerShard,
                 options.MinimumSubjects,
                 options.MinimumEpisodes,
-                generatedAtUtc);
+                generatedAtUtc,
+                options.MinimumRelations);
 
             var generator = new BangumiArchiveGenerator();
             GenerationResult result = await generator.GenerateAsync(generationOptions).ConfigureAwait(false);
@@ -186,6 +187,7 @@ internal sealed record CliOptions(
     int SubjectsPerShard,
     int MinimumSubjects,
     int MinimumEpisodes,
+    int MinimumRelations,
     DateTimeOffset? GeneratedAtUtc,
     bool SelectAssetOnly,
     bool ShowHelp)
@@ -211,6 +213,7 @@ Options:
   --chunk-size <n>               Alias for --subjects-per-shard.
   --min-subjects <n>             Fail if fewer subjects are generated. Default: 1.
   --min-episodes <n>             Fail if fewer episodes are generated. Default: 1.
+  --min-relations <n>            Fail if fewer relations are generated. Default: 1.
   --generated-at-utc <iso>       Override generated_at_utc; must be UTC round-trip O format.
   --generated-at <iso>           Alias for --generated-at-utc.
   --select-asset-only            Fetch Release API, select newest .zip by updated_at, print URL, then exit.
@@ -233,6 +236,7 @@ Environment:
         int subjectsPerShard = 25_000;
         int minimumSubjects = 1;
         int minimumEpisodes = 1;
+        int minimumRelations = 1;
         DateTimeOffset? generatedAtUtc = null;
         bool selectAssetOnly = false;
         bool showHelp = false;
@@ -281,6 +285,9 @@ Environment:
                 case "--min-episodes":
                     minimumEpisodes = ParsePositiveInt(RequireValue(args, ref i, arg), arg);
                     break;
+                case "--min-relations":
+                    minimumRelations = ParsePositiveInt(RequireValue(args, ref i, arg), arg);
+                    break;
                 case "--generated-at-utc":
                 case "--generated-at":
                     generatedAtUtc = DateTimeOffset.ParseExact(RequireValue(args, ref i, arg), "O", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
@@ -298,7 +305,7 @@ Environment:
             throw new ArgumentException("--zip and --release-api cannot be used together.");
         }
 
-        return new CliOptions(output, zip, releaseApi, assetBaseUrl, dataVersion, upstreamRelease, upstreamSha256, minimumClientVersion, subjectsPerShard, minimumSubjects, minimumEpisodes, generatedAtUtc, selectAssetOnly, showHelp);
+        return new CliOptions(output, zip, releaseApi, assetBaseUrl, dataVersion, upstreamRelease, upstreamSha256, minimumClientVersion, subjectsPerShard, minimumSubjects, minimumEpisodes, minimumRelations, generatedAtUtc, selectAssetOnly, showHelp);
     }
 
     private static string RequireValue(string[] args, ref int index, string option)

@@ -70,7 +70,8 @@ public sealed record GenerationOptions(
     int SubjectsPerShard,
     int MinimumSubjects,
     int MinimumEpisodes,
-    DateTimeOffset GeneratedAtUtc);
+    DateTimeOffset GeneratedAtUtc,
+    int MinimumRelations = 1);
 
 public sealed record GenerationResult(
     DataManifest Manifest,

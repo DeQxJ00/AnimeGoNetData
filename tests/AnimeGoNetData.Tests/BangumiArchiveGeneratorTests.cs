@@ -87,6 +87,7 @@ public sealed class BangumiArchiveGeneratorTests
             relationLines);
 
         AssertOfflineZipMatchesManifest(output, result.Manifest);
+        AssertOfflineRelationsAreReadable(output, result.Manifest);
         AssertChecksums(output);
     }
 
@@ -261,6 +262,33 @@ public sealed class BangumiArchiveGeneratorTests
             Assert.Equal(2, parts.Length);
             Assert.Equal(Sha256(Path.Combine(output, parts[1])), parts[0]);
         }
+    }
+
+    private static void AssertOfflineRelationsAreReadable(string output, DataManifest manifest)
+    {
+        string packagePath = Path.Combine(output, $"animegonetdata-{manifest.DataVersion}-offline.zip");
+        using var zip = ZipFile.OpenRead(packagePath);
+        ZipArchiveEntry entry = zip.GetEntry("relations-0001.jsonl.gz")!;
+        using Stream input = entry.Open();
+        using var gzip = new GZipStream(input, CompressionMode.Decompress);
+        using var reader = new StreamReader(gzip, Encoding.UTF8);
+        Assert.Equal(
+            [
+                "{\"subject_id\":1,\"related_subject_id\":2,\"relation_type\":2,\"order\":1}",
+                "{\"subject_id\":2,\"related_subject_id\":1,\"relation_type\":2,\"order\":0}"
+            ],
+            ReadLines(reader));
+    }
+
+    private static string[] ReadLines(StreamReader reader)
+    {
+        List<string> lines = [];
+        while (reader.ReadLine() is { } line)
+        {
+            lines.Add(line);
+        }
+
+        return lines.ToArray();
     }
 
     private static string Sha256(string path)
