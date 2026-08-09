@@ -6,60 +6,67 @@ public sealed record ArchiveAsset(
     string Name,
     string DownloadUrl,
     DateTimeOffset UpdatedAt,
-    long Size);
+    long Size,
+    string Release);
 
 public sealed record SubjectRecord(
     [property: JsonPropertyName("id")] int Id,
-    [property: JsonPropertyName("name_cn")] string NameCn,
     [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("eps")] int Eps,
-    [property: JsonPropertyName("airdate")] string AirDate,
-    [property: JsonPropertyName("type")] int Type);
+    [property: JsonPropertyName("name_cn")] string? NameCn,
+    [property: JsonPropertyName("air_date")] string? AirDate,
+    [property: JsonPropertyName("episode_count")] int EpisodeCount);
 
 public sealed record EpisodeRecord(
     [property: JsonPropertyName("id")] int Id,
     [property: JsonPropertyName("subject_id")] int SubjectId,
-    [property: JsonPropertyName("sort")] double Sort,
-    [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("name_cn")] string NameCn,
-    [property: JsonPropertyName("type")] int Type,
-    [property: JsonPropertyName("airdate")] string AirDate);
+    [property: JsonPropertyName("sort")] int Sort,
+    [property: JsonPropertyName("episode")] string Episode,
+    [property: JsonPropertyName("air_date")] string? AirDate);
 
-public sealed record UpstreamManifest(
-    [property: JsonPropertyName("release_api")] string? ReleaseApi,
-    [property: JsonPropertyName("asset_name")] string AssetName,
-    [property: JsonPropertyName("asset_url")] string AssetUrl,
-    [property: JsonPropertyName("asset_updated_at")] DateTimeOffset AssetUpdatedAt,
-    [property: JsonPropertyName("asset_size")] long AssetSize);
+public sealed record DataManifest(
+    [property: JsonPropertyName("schema_version")] int SchemaVersion,
+    [property: JsonPropertyName("data_version")] string DataVersion,
+    [property: JsonPropertyName("generated_at_utc")] string GeneratedAtUtc,
+    [property: JsonPropertyName("minimum_client_version")] string MinimumClientVersion,
+    [property: JsonPropertyName("upstream")] DataManifestUpstream Upstream,
+    [property: JsonPropertyName("assets")] IReadOnlyList<DataManifestAsset> Assets,
+    [property: JsonPropertyName("totals")] DataManifestTotals Totals);
 
-public sealed record ManifestFile(
-    [property: JsonPropertyName("path")] string Path,
-    [property: JsonPropertyName("kind")] string Kind,
-    [property: JsonPropertyName("records")] int Records,
-    [property: JsonPropertyName("bytes")] long Bytes,
+public sealed record DataManifestUpstream(
+    [property: JsonPropertyName("repository")] string Repository,
+    [property: JsonPropertyName("release")] string Release,
+    [property: JsonPropertyName("asset")] string Asset,
     [property: JsonPropertyName("sha256")] string Sha256);
 
-public sealed record DatasetManifest(
-    [property: JsonPropertyName("schema_version")] int SchemaVersion,
-    [property: JsonPropertyName("dataset_version")] string DatasetVersion,
-    [property: JsonPropertyName("generated_at")] DateTimeOffset GeneratedAt,
-    [property: JsonPropertyName("upstream")] UpstreamManifest Upstream,
-    [property: JsonPropertyName("record_counts")] Dictionary<string, int> RecordCounts,
-    [property: JsonPropertyName("files")] IReadOnlyList<ManifestFile> Files);
+public sealed record DataManifestAsset(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("file_name")] string FileName,
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("size_bytes")] long SizeBytes,
+    [property: JsonPropertyName("sha256")] string Sha256,
+    [property: JsonPropertyName("record_count")] long RecordCount,
+    [property: JsonPropertyName("subject_id_min")] int SubjectIdMin,
+    [property: JsonPropertyName("subject_id_max")] int SubjectIdMax);
+
+public sealed record DataManifestTotals(
+    [property: JsonPropertyName("subjects")] long Subjects,
+    [property: JsonPropertyName("episodes")] long Episodes);
 
 public sealed record GenerationOptions(
     string OutputDirectory,
-    string ZipSource,
+    string ZipPath,
     ArchiveAsset UpstreamAsset,
-    string? ReleaseApi,
-    int ChunkSize,
+    string UpstreamSha256,
+    string DataVersion,
+    Uri AssetBaseUrl,
+    string MinimumClientVersion,
+    int SubjectsPerShard,
     int MinimumSubjects,
     int MinimumEpisodes,
-    DateTimeOffset GeneratedAt);
+    DateTimeOffset GeneratedAtUtc);
 
 public sealed record GenerationResult(
-    DatasetManifest Manifest,
-    int SkippedBadSubjectLines,
-    int SkippedBadEpisodeLines,
-    int DuplicateSubjects,
-    int DuplicateEpisodes);
+    DataManifest Manifest,
+    string ManifestSha256,
+    string OfflinePackagePath,
+    string ChecksumsPath);

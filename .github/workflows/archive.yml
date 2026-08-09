@@ -5,6 +5,9 @@ on:
     - cron: "0 0 * * 3"
   workflow_dispatch:
   push:
+    branches: [master]
+    paths:
+      - ".github/workflows/archive.yml"
     tags:
       - "*"
 
@@ -30,45 +33,92 @@ jobs:
           dotnet build --configuration Release --no-restore
           dotnet test --configuration Release --no-build
 
-      - name: Publish NativeAOT generator
-        run: dotnet publish src/AnimeGoNetData.Cli/AnimeGoNetData.Cli.csproj --configuration Release -r linux-x64 --self-contained true -o artifacts/publish/linux-x64
-
-      - name: Generate archive data
+      - name: Resolve latest Bangumi Archive ZIP
+        shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          artifacts/publish/linux-x64/AnimeGoNetData.Cli \
-            --output artifacts/data \
-            --release-api https://api.github.com/repos/bangumi/Archive/releases/latest \
-            --chunk-size 100000 \
-            --min-subjects 1000 \
-            --min-episodes 10000
+          $headers = @{
+            'User-Agent' = 'AnimeGoNetData'
+            'Authorization' = "Bearer $env:GITHUB_TOKEN"
+          }
+          $release = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/bangumi/Archive/releases/latest'
+          $asset = $release.assets |
+            Where-Object { $_.name.EndsWith('.zip', [StringComparison]::OrdinalIgnoreCase) } |
+            Sort-Object updated_at -Descending |
+            Select-Object -First 1
+          if ($null -eq $asset) { throw 'No .zip asset found in bangumi/Archive latest release.' }
+          $updated = [DateTimeOffset]::Parse($asset.updated_at).ToUniversalTime()
+          $dataVersion = $updated.ToString('yyyy.MM.dd', [Globalization.CultureInfo]::InvariantCulture) + '.1'
+          "BANGUMI_RELEASE=$($release.tag_name)" >> $env:GITHUB_ENV
+          "BANGUMI_ASSET_NAME=$($asset.name)" >> $env:GITHUB_ENV
+          "BANGUMI_ASSET_URL=$($asset.browser_download_url)" >> $env:GITHUB_ENV
+          "DATA_VERSION=$dataVersion" >> $env:GITHUB_ENV
+          "GENERATED_AT_UTC=$($updated.ToString('O', [Globalization.CultureInfo]::InvariantCulture))" >> $env:GITHUB_ENV
 
-      - name: Package and checksum
+      - name: Download upstream ZIP
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          tar -C artifacts/data -czf artifacts/animegonetdata-bangumi-jsonl.tar.gz .
-          cp artifacts/data/manifest.json artifacts/manifest.json
-          find artifacts/data -type f -name '*.jsonl.gz' -print0 | sort -z | xargs -0 sha256sum > artifacts/checksums.sha256
-          sha256sum artifacts/animegonetdata-bangumi-jsonl.tar.gz artifacts/manifest.json >> artifacts/checksums.sha256
+          mkdir -p artifacts/upstream
+          curl -fL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "User-Agent: AnimeGoNetData" \
+            -o "artifacts/upstream/${BANGUMI_ASSET_NAME}" \
+            "${BANGUMI_ASSET_URL}"
+          sha256sum "artifacts/upstream/${BANGUMI_ASSET_NAME}" | awk '{print $1}' > artifacts/upstream/sha256.txt
+          echo "BANGUMI_SHA256=$(cat artifacts/upstream/sha256.txt)" >> "$GITHUB_ENV"
+
+      - name: Publish NativeAOT generator
+        run: dotnet publish src/AnimeGoNetData.Cli/AnimeGoNetData.Cli.csproj --configuration Release -r linux-x64 --self-contained true -o artifacts/publish/linux-x64
+
+      - name: Generate DATA_MANIFEST_V1 assets
+        run: |
+          artifacts/publish/linux-x64/AnimeGoNetData.Cli \
+            --zip "artifacts/upstream/${BANGUMI_ASSET_NAME}" \
+            --output "artifacts/data-${DATA_VERSION}" \
+            --data-version "${DATA_VERSION}" \
+            --asset-base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${DATA_VERSION}/" \
+            --upstream-release "${BANGUMI_RELEASE}" \
+            --upstream-sha256 "${BANGUMI_SHA256}" \
+            --generated-at-utc "${GENERATED_AT_UTC}" \
+            --subjects-per-shard 25000 \
+            --min-subjects 30000 \
+            --min-episodes 300000
 
       - uses: actions/upload-artifact@v7
         with:
-          name: animegonetdata-bangumi-jsonl
-          path: |
-            artifacts/animegonetdata-bangumi-jsonl.tar.gz
-            artifacts/manifest.json
-            artifacts/checksums.sha256
+          name: animegonetdata-${{ env.DATA_VERSION }}
+          path: artifacts/data-${{ env.DATA_VERSION }}/*
 
-      - name: Update rolling release
+      - name: Publish immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete archive --yes --cleanup-tag || true
-          git tag -f archive "$GITHUB_SHA"
-          git push origin refs/tags/archive --force
-          gh release create archive \
-            --title "AnimeGoNetData archive" \
-            --notes "Rolling AnimeGoNetData Bangumi JSONL.gz archive generated from the latest Bangumi Archive ZIP." \
-            artifacts/animegonetdata-bangumi-jsonl.tar.gz \
-            artifacts/manifest.json \
-            artifacts/checksums.sha256
+          set -euo pipefail
+          output_dir="artifacts/data-${DATA_VERSION}"
+          expected_names="$(mktemp)"
+          remote_names="$(mktemp)"
+          find "$output_dir" -maxdepth 1 -type f -printf '%f\n' | sort > "$expected_names"
+
+          if gh release view "$DATA_VERSION" >/dev/null 2>&1; then
+            mkdir -p artifacts/remote-release
+            gh release download "$DATA_VERSION" --dir artifacts/remote-release
+            find artifacts/remote-release -maxdepth 1 -type f -printf '%f\n' | sort > "$remote_names"
+            diff -u "$expected_names" "$remote_names"
+            while IFS= read -r name; do
+              cmp "$output_dir/$name" "artifacts/remote-release/$name"
+            done < "$expected_names"
+          else
+            gh release create "$DATA_VERSION" \
+              --draft \
+              --latest=false \
+              --title "AnimeGoNetData ${DATA_VERSION}" \
+              --notes "Immutable DATA_MANIFEST_V1 Bangumi archive generated from ${BANGUMI_ASSET_NAME}."
+            mapfile -t release_files < <(find "$output_dir" -maxdepth 1 -type f | sort)
+            gh release upload "$DATA_VERSION" "${release_files[@]}"
+            gh release view "$DATA_VERSION" --json assets --jq '.assets[].name' | sort > "$remote_names"
+            diff -u "$expected_names" "$remote_names"
+          fi
+
+          gh release edit "$DATA_VERSION" --draft=false --latest

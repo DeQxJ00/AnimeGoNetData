@@ -7,6 +7,7 @@ internal static class FixtureZip
 {
     public static string Create(string directory, string[]? subjects, string[]? episodes)
     {
+        Directory.CreateDirectory(directory);
         string path = Path.Combine(directory, "fixture.zip");
         using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
         if (subjects is not null)

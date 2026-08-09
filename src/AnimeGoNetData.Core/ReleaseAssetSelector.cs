@@ -27,11 +27,12 @@ public static class ReleaseAssetSelector
             throw new InvalidOperationException("Release API response does not contain a .zip asset.");
         }
 
-        return new ArchiveAsset(selected.Name, selected.BrowserDownloadUrl, selected.UpdatedAt, selected.Size);
+        return new ArchiveAsset(selected.Name, selected.BrowserDownloadUrl, selected.UpdatedAt, selected.Size, release.TagName);
     }
 }
 
 internal sealed record GitHubReleaseResponse(
+    [property: JsonPropertyName("tag_name")] string TagName,
     [property: JsonPropertyName("assets")] List<GitHubAssetResponse> Assets);
 
 internal sealed record GitHubAssetResponse(
