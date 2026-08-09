@@ -537,9 +537,12 @@ public sealed partial class BangumiArchiveGenerator
             : throw new InvalidDataException($"A Bangumi Archive {kind} ID is invalid.");
 
     private static bool TryPositiveInt(JsonElement root, string name, out int result)
-        => root.TryGetProperty(name, out JsonElement value)
+    {
+        result = default;
+        return root.TryGetProperty(name, out JsonElement value)
             && value.TryGetInt32(out result)
             && result > 0;
+    }
 
     private static bool TryPositiveDecimal(JsonElement root, string name, out decimal result)
     {
