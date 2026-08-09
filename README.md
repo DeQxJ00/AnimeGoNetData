@@ -52,6 +52,17 @@ Episode JSONL 每行字段：
 - `air_date` 来自 subject `date` 或 episode `airdate`，无效日期输出 `null`。
 - 重复 subject/episode ID、坏 JSON、缺少 ZIP entry 会使发布失败；不能满足输出协议的 type=0 Episode（例如缺失或非正数 `sort`）会被跳过。
 
+## 业务边界
+
+当前 v1 只发布 Bangumi Subject 基础字段和普通 Episode，不增加主程序尚未定义的
+asset kind，也不包含 Bangumi relations、季度判断结果或完整 AI 作品参考数据。
+
+- 普通季度匹配：`name`、`name_cn`、`air_date` 只能作为 TMDB Series/Season 的搜索候选证据；最终 Series/Season 必须调用并验证 TMDB。
+- P3 Backtrace：离线包不支持关系回溯。主程序 `GetRelatedSubjectsAsync` 仍通过在线 Bangumi `/v0/subjects/{id}/subjects` 获取 relations。
+- AI：主程序请求只发送作品级 `bgmid`，以及可选的、由 Bangumi Episode 日期计算出的 `bgm_episode_candidate`；不会把离线 Subject 详情直接发送给模型。详细 Bangumi 参考由 Bangumi MCP 按需取得，最终仍由 TMDB 验证。
+
+若要真正支持离线 P3，需要另行扩展 AnimeGoNet 主程序的 manifest/schema、SQLite、store 和 client，增加 relation 数据；仅修改本仓库的发布格式无法完成该功能。
+
 ## 输出目录
 
 生成目录包含：
